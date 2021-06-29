@@ -50,7 +50,7 @@ namespace NearestNeighbor
              * Accepts a single .star and one outdir as input and writes coordinateFiles to outdir for relion picking
              * 
              * */
-            if(args.Length != 2)
+            if (args.Length != 2)
             {
                 Console.WriteLine($"Usage: {System.AppDomain.CurrentDomain.FriendlyName} <starFile with orientations> <outdir for coordinates>");
             }
@@ -126,6 +126,7 @@ namespace NearestNeighbor
                             continue;
                         float d = (particleI.pos - particleJ.pos).Length();
 
+                        // We save not only the NN (smallestD[0], but also second NN, which is unused in this code)
                         if (d < smallestD[0])
                         {
 
@@ -134,6 +135,11 @@ namespace NearestNeighbor
                             Matrix3 R = particleJ.orientation * particleI.orientation.Transposed();
                             smallestO[0] = (float)Math.Acos((R.M11 + R.M22 + R.M33 - 1) / 2.0d);  //http://www.boris-belousov.net/2016/12/01/quat-dist/#using-rotation-matrices
                             float3 direction = particleJ.pos - particleI.pos;
+                            /*
+                              We make an approximation that the tilt is a perfect 30 degree rotation around the x axis. MEasured distance in y needs to be adjusted
+                            */
+                            direction.Y = (float)(direction.Y / Math.Cos(30.0 / 360.0 * 2 * Math.PI));
+
                             float3 directionRot = particleI.orientation.Transposed() * direction;
                             dX[0] = directionRot.X;
                             dY[0] = directionRot.Y;
@@ -146,57 +152,57 @@ namespace NearestNeighbor
                             Matrix3 R = particleJ.orientation * particleI.orientation.Transposed();
                             smallestO[1] = (float)Math.Acos((R.M11 + R.M22 + R.M33 - 1) / 2.0d);  //http://www.boris-belousov.net/2016/12/01/quat-dist/#using-rotation-matrices
                             float3 direction = particleJ.pos - particleI.pos;
+                            /*
+                              We make an approximation that the tilt is a perfect 30 degree rotation around the x axis. MEasured distance in y needs to be adjusted
+                            */
+                            direction.Y = (float)(direction.Y / Math.Cos(30.0 / 360.0 * 2 * Math.PI));
+
+                            /*
+                              directionRot is the vector that connects one monomer to its NN, expressed in the coordinate system of the monomer.
+                              To obtain it, we need to apply the inverse of the monomer pose to the vector that connects both monomers in the
+                              micrograph coordinate system
+                            */
                             float3 directionRot = particleI.orientation.Transposed() * direction;
                             dX[1] = directionRot.X;
                             dY[1] = directionRot.Y;
                             dZ[1] = directionRot.Z;
                         }
                     }
-                    for (int i = 0; i < 2; i++)
-                    {
-                        NNMapping[globalIdx] = smallestGlobalJdx;
-                        distances[globalIdx] = smallestD;
-                        distanceX[globalIdx] = dX;
-                        distanceY[globalIdx] = dY;
-                        distanceZ[globalIdx] = dZ;
-                        orientationDistance[globalIdx] = smallestO;
-                    }
+                    // Save NN information for current (Idx) particle
+                    NNMapping[globalIdx] = smallestGlobalJdx;
+                    distances[globalIdx] = smallestD;
+                    distanceX[globalIdx] = dX;
+                    distanceY[globalIdx] = dY;
+                    distanceZ[globalIdx] = dZ;
+                    orientationDistance[globalIdx] = smallestO;
+
 
                 }
             }, null);
 
+            // Now we write out all NN that fullfill our dimer criterion
             Helper.ForCPU(0, particlesInMics.Count(), 15, null, (micrographIdx, t) =>
             {
                 string micrographName = imageNames[particles[particlesInMics[micrographIdx][0]].idx];
                 Star dimerPositions = new Star(new string[] { "rlnCoordinateX", "rlnCoordinateY" });
- 
+
                 for (int idxInMicrograph = 0; idxInMicrograph < particlesInMics[micrographIdx].Count(); idxInMicrograph++)
                 {
                     int globalIdx = particlesInMics[micrographIdx][idxInMicrograph];
 
-                    if (orientationDistance[globalIdx][0] > 0.35 && orientationDistance[globalIdx][0] < 0.5)
-                    {
-                        if (distanceY[globalIdx][0] > 0)
-                        {
-                            Matrix3 R = particles[globalIdx].orientation * particles[NNMapping[globalIdx][0]].orientation.Transposed();
-                        }
-                        else
-                        {
-                            Matrix3 R = particles[NNMapping[globalIdx][0]].orientation * particles[globalIdx].orientation.Transposed();
-                        }
-
-                    }
-
-                    if ((orientationDistance[globalIdx][0] > 2.9 ) && globalIdx < NNMapping[globalIdx][0] && distances[globalIdx][0] > 20 && distances[globalIdx][0] < 90)
+                    //check if dimer criterion is fullfilled
+                    if ((orientationDistance[globalIdx][0] > 2.9) && globalIdx < NNMapping[globalIdx][0] && distances[globalIdx][0] > 20 && distances[globalIdx][0] < 90)
                     {
                         float3 newPos = (particles[globalIdx].pos + particles[NNMapping[globalIdx][0]].pos) / 2;
                         dimerPositions.AddRow(new List<string>(new string[] { $"{(newPos.X / pixelSize).ToString(CultureInfo.InvariantCulture)}", $"{(newPos.Y / pixelSize).ToString(CultureInfo.InvariantCulture)}" }));
                     }
-                    
+
                 }
+
+                //Write out non empty .star files
                 if (dimerPositions.RowCount > 0)
                     dimerPositions.Save($@"{outDir}\average\{Path.GetFileName(micrographName).Replace(".mrcs", "_dimerPick.star")}");
-                
+
             }, null);
             using (System.IO.StreamWriter file = new System.IO.StreamWriter($@"{outDir}\coords_suffix_dimerPick.star", false))
             {

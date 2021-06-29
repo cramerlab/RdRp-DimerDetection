@@ -110,6 +110,10 @@ namespace NearestNeighbor
                     idxGlobal++;
                 }
             }
+
+            /*
+                This loop calculates NN information for every particle, it is very similar to the NearestNeighbour module  
+            */
             Helper.ForCPU(0, particlesInMics.Count(), 30, null, (micrographIdx, t) =>
             {
                 var particlesInMic = particlesInMics[micrographIdx];
@@ -140,11 +144,13 @@ namespace NearestNeighbor
                             smallestD = d;
                             smallestGlobalJdx = particleJ.idx;
                             float3 direction = particleJ.pos - particleI.pos;
+
+                            direction.Y = (float)(direction.Y / Math.Cos(30.0 / 360.0 * 2 * Math.PI));
                             float3 directionRot = particleI.orientation.Transposed() * direction;
                             dX = directionRot.X;
                             dY = directionRot.Y;
                             dZ = directionRot.Z;
-                            if(dY > 0)
+                            if (dY > 0)
                             {
                                 Matrix3 R = particleJ.orientation * particleI.orientation.Transposed();
                                 smallestO = (float)Math.Acos((R.M11 + R.M22 + R.M33 - 1) / 2.0d);  //http://www.boris-belousov.net/2016/12/01/quat-dist/#using-rotation-matrices
@@ -167,10 +173,14 @@ namespace NearestNeighbor
             }, null);
 
             int newParticleIdx = 1;
-            
 
-            float3 TheoDir = new float3(-25, -60, 60);  //very approximate expected orientation
-            
+            /*
+               This is a very approximate expected orientation which we use to predict where a second monomer would have to be on the micrograph for a chance to form the dimer we have observed.
+               Note that we only predict the position on the micrograph for a new particle extraction. The pose that will be assigned to the extracted particles in the subsequent reconstruction will
+               be unbiased from this code and is not biased towards dimeric conformations
+            */
+            float3 TheoDir = new float3(25, -60, 60);
+
             Star filteredParticles = new Star(particleStar.GetColumnNames());
             Helper.ForCPU(0, particlesInMics.Count(), 15, null, (micrographIdx, t) =>
             {
@@ -183,7 +193,10 @@ namespace NearestNeighbor
                     float3 thisTheoDir = particles[globalIdx].orientation * TheoDir;
                     newParticles.AddRow(new List<string>(new string[] { $"{particles[globalIdx].pos.X / pixelSize}", $"{particles[globalIdx].pos.Y / pixelSize}" }));
                     newParticleIdx++;
-                    if (true && !(distances[globalIdx] < 90 && orientationDistance[globalIdx] > 2.9)) //Add new particles based on most probable orientation
+                    /*
+                       In case there is no NN that fullfills the dimer criterion, predict where a monomer would ahve to be based on the TheoDir
+                     */
+                    if (true && !(distances[globalIdx] < 90 && orientationDistance[globalIdx] > 2.9))
                     {
                         float3 newLoc = particles[globalIdx].pos + thisTheoDir;
                         newParticles.AddRow(new List<string>(new string[] { $"{(newLoc.X / pixelSize).ToString(CultureInfo.InvariantCulture)}", $"{(newLoc.Y / pixelSize).ToString(CultureInfo.InvariantCulture)}" }));

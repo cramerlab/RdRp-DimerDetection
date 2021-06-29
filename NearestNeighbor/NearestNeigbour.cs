@@ -92,6 +92,7 @@ namespace NearestNeighbor
             var relMatrix = Helper.ArrayOfFunction(i => new Matrix3(), positions.Count());
             var orientationDistance = Helper.ArrayOfFunction(i => -1.0f, positions.Count());
 
+            //particle information is saved in the Particle struct for each particle. Thereby, positions are converted to angstrom such that distances will be in Angstrom as well.
             Particle[] particles = Helper.ArrayOfFunction(i => new Particle(positions[i] * pixelSize - origins[i], angles[i] * Helper.ToRad, i, originalMicrographNames[i], 0), imageNames.Length);
 
             List<int>[] particlesInMics = Helper.ArrayOfFunction(i => new List<int>(), uniqueImages.Count());
@@ -141,24 +142,37 @@ namespace NearestNeighbor
                             smallestD = d;
                             smallestGlobalJdx = particleJ.idx;
                             float3 direction = particleJ.pos - particleI.pos;
-                            direction.Y = (float)(direction.Y / Math.Cos(30.0 / 360.0 * 2 * Math.PI));  //Approximate fix for tilt angle
+                            /*
+                              We make an approximation that the tilt is a perfect 30 degree rotation around the x axis. MEasured distance in y needs to be adjusted
+                            */
+                            direction.Y = (float)(direction.Y / Math.Cos(30.0 / 360.0 * 2 * Math.PI));
+
+                            /*
+                              directionRot is the vector that connects one monomer to its NN, expressed in the coordinate system of the monomer.
+                              To obtain it, we need to apply the inverse of the monomer pose to the vector that connects both monomers in the
+                              micrograph coordinate system
+                            */
                             float3 directionRot = particleI.orientation.Transposed() * direction;
                             dX = directionRot.X;
                             dY = directionRot.Y;
                             dZ = directionRot.Z;
 
+                            //Make an arbitrary choice to make choice of the reference monomer for two NN the same no matter which one is i and j
                             if (dY > 0)
                             {
+                                // Calculate relative orientation matrix
                                 Matrix3 R = particleJ.orientation * particleI.orientation.Transposed();
                                 relativeMat = R;
+                                // Relative orientation expressed as a single angle (rotation around the eigenaxis of the rotation matrix)
                                 smallestO = (float)Math.Acos((R.M11 + R.M22 + R.M33 - 1) / 2.0d);  //this is the angle of rotation around the eigenvector of R (euler theory of rotation) http://www.boris-belousov.net/2016/12/01/quat-dist/#using-rotation-matrices
 
                             }
                             else
                             {
-
+                                // Calculate relative orientation matrix
                                 Matrix3 R = particleI.orientation * particleJ.orientation.Transposed();
                                 relativeMat = R;
+                                // Relative orientation expressed as a single angle (rotation around the eigenaxis of the rotation matrix)
                                 smallestO = (float)Math.Acos((R.M11 + R.M22 + R.M33 - 1) / 2.0d);  //this is the angle of rotation around the eigenvector of R (euler theory of rotation) http://www.boris-belousov.net/2016/12/01/quat-dist/#using-rotation-matrices
                             }
                         }
